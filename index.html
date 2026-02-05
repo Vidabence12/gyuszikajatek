@@ -1,136 +1,131 @@
 <!DOCTYPE html>
 <html lang="hu">
 <head>
-<meta charset="UTF-8" />
-<title>Cyber Survival Online</title>
-
-<!-- Firebase régebbi (kompatibilis) verzió -->
-<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
-<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
-
+<meta charset="UTF-8">
+<title>Cyber Survival DUO</title>
 <style>
 body { margin:0; overflow:hidden; background:#0a0f1f; color:white; font-family:Arial; }
 #ui { position:fixed; top:10px; left:10px; }
 #leaderboard { position:fixed; top:10px; right:10px; text-align:right; }
-#startScreen {
-    position:fixed; inset:0; background:#000c; display:flex;
-    flex-direction:column; justify-content:center; align-items:center;
+#gameOver {
+    position:fixed; inset:0; background:#000c; display:none;
+    justify-content:center; align-items:center; flex-direction:column;
 }
-input, button { padding:10px; font-size:18px; margin:5px; }
+button { padding:10px 20px; font-size:18px; margin-top:10px; }
 </style>
 </head>
 <body>
 
-<div id="startScreen">
-    <h1>Bencibogyó játéka</h1>
-    <input id="nameInput" placeholder="Neved..." />
-    <button onclick="startGame()">Játék indítása</button>
-</div>
-
 <canvas id="game"></canvas>
 
 <div id="ui">
-    ❤️ Élet: <span id="health">100</span><br>
-    🧮 Pont: <span id="score">0</span>
+❤️ P1 Élet: <span id="h1">100</span><br>
+💛 P2 Élet: <span id="h2">100</span><br>
+🧮 Pont: <span id="score">0</span>
 </div>
 
 <div id="leaderboard">
-    <h3>🏆 Tabella</h3>
-    <div id="scores"></div>
+<h3>🏆 Helyi Tabella</h3>
+<div id="scores"></div>
+</div>
+
+<div id="gameOver">
+<h1>GAME OVER</h1>
+<p>Pontszám: <span id="finalScore"></span></p>
+<button onclick="restart()">Újra</button>
 </div>
 
 <script>
-// 🔥 IDE ILLESZD BE A SAJÁT firebaseConfig-odat
-var firebaseConfig = {
-  apiKey: "IDE",
-  authDomain: "IDE",
-  databaseURL: "IDE",
-  projectId: "IDE",
-  storageBucket: "IDE",
-  messagingSenderId: "IDE",
-  appId: "IDE"
-};
-
-firebase.initializeApp(firebaseConfig);
-var db = firebase.database();
-
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
-let playerId, playerName;
-let players = {};
-let enemies = [];
-let health = 100;
-let score = 0;
+let bullets = [], enemies = [], score = 0, running = true;
 let keys = {};
 
-function startGame() {
-    playerName = document.getElementById("nameInput").value || "Játékos";
-    document.getElementById("startScreen").style.display = "none";
+let p1 = { x:200, y:300, color:"#00f0ff", health:100, dir:{x:1,y:0} };
+let p2 = { x:600, y:300, color:"orange", health:100, dir:{x:-1,y:0} };
 
-    playerId = db.ref("players").push().key;
-
-    db.ref("players/" + playerId).set({
-        name: playerName,
-        x: canvas.width/2,
-        y: canvas.height/2
-    });
-
-    db.ref("players").on("value", snap => players = snap.val() || {});
-    loadLeaderboard();
-    spawnEnemies();
-    update();
-}
-
-function spawnEnemies() {
-    setInterval(() => {
+function spawnEnemies(){
+    setInterval(()=>{
+        if(!running) return;
         enemies.push({
             x: Math.random()*canvas.width,
             y: Math.random()*canvas.height,
-            size: 18
+            size: 18,
+            speed: 1+Math.random()
         });
-    }, 2000);
+    },1000);
 }
 
-function update() {
-    movePlayer();
+function shoot(player){
+    bullets.push({
+        x:player.x,
+        y:player.y,
+        dx:player.dir.x*8,
+        dy:player.dir.y*8
+    });
+}
+
+function update(){
+    if(!running) return;
+    movePlayers();
+    moveBullets();
     moveEnemies();
+    collisions();
     draw();
     requestAnimationFrame(update);
 }
 
-function movePlayer() {
-    const me = players[playerId];
-    if (!me) return;
+function movePlayers(){
+    if(keys["w"]){ p1.y-=4; p1.dir={x:0,y:-1}; }
+    if(keys["s"]){ p1.y+=4; p1.dir={x:0,y:1}; }
+    if(keys["a"]){ p1.x-=4; p1.dir={x:-1,y:0}; }
+    if(keys["d"]){ p1.x+=4; p1.dir={x:1,y:0}; }
 
-    if (keys["w"]) me.y -= 4;
-    if (keys["s"]) me.y += 4;
-    if (keys["a"]) me.x -= 4;
-    if (keys["d"]) me.x += 4;
-
-    db.ref("players/" + playerId).update({ x: me.x, y: me.y });
+    if(keys["arrowup"]){ p2.y-=4; p2.dir={x:0,y:-1}; }
+    if(keys["arrowdown"]){ p2.y+=4; p2.dir={x:0,y:1}; }
+    if(keys["arrowleft"]){ p2.x-=4; p2.dir={x:-1,y:0}; }
+    if(keys["arrowright"]){ p2.x+=4; p2.dir={x:1,y:0}; }
 }
 
-function moveEnemies() {
-    const me = players[playerId];
-    if (!me) return;
+function moveBullets(){
+    bullets.forEach(b=>{ b.x+=b.dx; b.y+=b.dy; });
+    bullets = bullets.filter(b=>b.x>0&&b.x<canvas.width&&b.y>0&&b.y<canvas.height);
+}
 
-    enemies.forEach(e => {
-        const angle = Math.atan2(me.y - e.y, me.x - e.x);
-        e.x += Math.cos(angle);
-        e.y += Math.sin(angle);
-
-        if (Math.hypot(me.x - e.x, me.y - e.y) < 25) {
-            health--;
-            document.getElementById("health").textContent = health;
-            if (health <= 0) endGame();
-        }
+function moveEnemies(){
+    enemies.forEach(e=>{
+        const target = Math.random()<0.5 ? p1 : p2;
+        const angle = Math.atan2(target.y-e.y,target.x-e.x);
+        e.x += Math.cos(angle)*e.speed;
+        e.y += Math.sin(angle)*e.speed;
     });
 }
 
-function draw() {
+function collisions(){
+    enemies.forEach((e,ei)=>{
+        [p1,p2].forEach((p,pi)=>{
+            if(Math.hypot(p.x-e.x,p.y-e.y)<25){
+                p.health--;
+                document.getElementById(pi===0?"h1":"h2").textContent=p.health;
+                if(p.health<=0) endGame();
+            }
+        });
+
+        bullets.forEach((b,bi)=>{
+            if(Math.hypot(b.x-e.x,b.y-e.y)<20){
+                enemies.splice(ei,1);
+                bullets.splice(bi,1);
+                score+=10;
+                document.getElementById("score").textContent=score;
+            }
+        });
+    });
+}
+
+function draw(){
     ctx.clearRect(0,0,canvas.width,canvas.height);
 
     ctx.fillStyle="red";
@@ -138,38 +133,51 @@ function draw() {
         ctx.beginPath(); ctx.arc(e.x,e.y,e.size,0,Math.PI*2); ctx.fill();
     });
 
-    for (let id in players) {
-        const p = players[id];
-        ctx.fillStyle = id === playerId ? "#00f0ff" : "orange";
-        ctx.beginPath();
-        ctx.arc(p.x,p.y,20,0,Math.PI*2);
-        ctx.fill();
+    ctx.fillStyle=p1.color;
+    ctx.beginPath(); ctx.arc(p1.x,p1.y,20,0,Math.PI*2); ctx.fill();
 
-        ctx.fillStyle="white";
-        ctx.fillText(p.name, p.x-15, p.y-25);
-    }
-}
+    ctx.fillStyle=p2.color;
+    ctx.beginPath(); ctx.arc(p2.x,p2.y,20,0,Math.PI*2); ctx.fill();
 
-function endGame() {
-    db.ref("scores").push({ name: playerName, score: score });
-    db.ref("players/" + playerId).remove();
-    alert("Vége! Pontszám: " + score);
-    location.reload();
-}
-
-function loadLeaderboard() {
-    db.ref("scores").limitToLast(10).on("value", snap => {
-        let html="";
-        snap.forEach(s=>{
-            const d=s.val();
-            html += `${d.name}: ${d.score}<br>`;
-        });
-        document.getElementById("scores").innerHTML=html;
+    ctx.fillStyle="yellow";
+    bullets.forEach(b=>{
+        ctx.beginPath(); ctx.arc(b.x,b.y,5,0,Math.PI*2); ctx.fill();
     });
 }
 
-window.addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
-window.addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
+function endGame(){
+    running=false;
+    saveScore(score);
+    document.getElementById("finalScore").textContent=score;
+    document.getElementById("gameOver").style.display="flex";
+}
+
+function restart(){ location.reload(); }
+
+function saveScore(s){
+    let scores = JSON.parse(localStorage.getItem("duoScores")||"[]");
+    scores.push(s);
+    scores.sort((a,b)=>b-a);
+    scores = scores.slice(0,5);
+    localStorage.setItem("duoScores",JSON.stringify(scores));
+    showScores();
+}
+
+function showScores(){
+    let scores = JSON.parse(localStorage.getItem("duoScores")||"[]");
+    document.getElementById("scores").innerHTML = scores.map(s=>"⭐ "+s).join("<br>");
+}
+showScores();
+
+window.addEventListener("keydown",e=>{
+    keys[e.key.toLowerCase()]=true;
+    if(e.code==="Space") shoot(p1);
+    if(e.code==="Enter") shoot(p2);
+});
+window.addEventListener("keyup",e=>keys[e.key.toLowerCase()]=false);
+
+spawnEnemies();
+update();
 </script>
 </body>
 </html>
